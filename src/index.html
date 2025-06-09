@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tester POS - Transbank</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@3.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://code.jquery.com/jquery-1.12.4.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert@1.1.3/dist/sweetalert.min.js"></script>
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+  <h1 class="text-center mb-4">Tester POS - Transbank</h1>
+
+  <div class="row g-3">
+
+    <div class="col-md-4">
+      <button id="btnVender" class="btn btn-success w-100">Vender</button>
+    </div>
+
+    <div class="col-md-4">
+      <button id="btnPoll" class="btn btn-primary w-100">Poll</button>
+    </div>
+
+    <div class="col-md-4">
+      <button id="btnLoadKeys" class="btn btn-primary w-100">Load Keys</button>
+    </div>
+
+    <div class="col-md-4">
+      <button id="btnCloseDay" class="btn btn-warning w-100">Close Day</button>
+    </div>
+
+    <div class="col-md-4">
+      <button id="btnGetLastSale" class="btn btn-info w-100">Get Last Sale</button>
+    </div>    
+
+    <div class="col-md-4">
+      <button id="btnDesconectar" class="btn btn-danger w-100">Desconectar POS</button>
+    </div>
+
+    <div class="col-md-4">
+      <button id="btnConnect" class="btn btn-secondary w-100">Conectar POS</button>
+    </div>
+
+  </div>
+
+  <div class="mt-5">
+    <h4>Respuesta:</h4>
+    <pre id="responseArea" class="bg-white p-3 border rounded" style="height: 300px; overflow: auto;"></pre>
+  </div>
+
+</div>
+
+<script>
+  const baseURL = 'https://localhost:3000'; // Base URL del backend
+  
+  // Helper para mostrar respuestas
+  function showResponse(data) {
+    $('#responseArea').text(JSON.stringify(data, null, 2));
+  }
+  
+  // Helper para mostrar alertas    
+  function showAlert(message) {
+    var lowerMessage = message.toLowerCase();
+    var isError = lowerMessage.includes('error') || lowerMessage.includes('problema');
+
+    swal({
+      title: message,
+      icon: isError ? "error" : "success",
+      button: "OK",
+    });
+  }
+  
+  // Botón Vender
+  $('#btnVender').click(function() {
+    var monto = prompt("Ingrese el monto a vender:", "1000");
+    var ticket = prompt("Ingrese el número de ticket:", "12345");
+  
+    $.ajax({
+      url: baseURL + '/api/payment',
+      type: 'POST',
+      data: JSON.stringify({ amount: parseInt(monto), ticketNumber: ticket }),
+      contentType: 'application/json',
+      success: function(res) {
+        showResponse(res);
+        showAlert('Venta realizada correctamente');
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert('Error al realizar venta');
+      }
+    });
+  });
+  
+  // Botón Poll
+  $('#btnPoll').click(function() {
+    $.ajax({
+      url: baseURL + '/api/terminal/status',
+      type: 'GET',
+      success: function(res) {
+        showResponse(res);
+
+        var responseData = res;
+
+        // Detectar si contiene explícitamente un OK
+        if (responseData.status === "ACK" || responseData.responseCode === "00" || 
+            (responseData.message && responseData.message.toLowerCase().includes("ok"))) {
+          showAlert("Polling OK");
+        } else {
+          showAlert("Polling OK, recibido 00");
+        }
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert("Error: Problema de conexión con POS");
+      }
+    });
+  });
+
+  // Botón Load Keys
+  $('#btnLoadKeys').click(function() {
+    $.ajax({
+      url: baseURL + '/api/terminal/loadKeys',
+      type: 'POST',
+      success: function(res) {
+        showResponse(res);
+        showAlert('Carga de llaves exitosa');
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert('Error al cargar llaves');
+      }
+    });
+  });
+  
+  // Botón Close Day
+  $('#btnCloseDay').click(function() {
+    $.ajax({
+      url: baseURL + '/api/terminal/cierre-diario',
+      type: 'POST',
+      data: JSON.stringify({ printReport: true }),
+      contentType: 'application/json',
+      success: function(res) {
+        showResponse(res);
+        if (res && res.responseCode === "00") {
+          showAlert("Cierre OK");
+        } else {
+          showAlert("Cierre realizado con observaciones");
+        }
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert('Error al realizar cierre');
+      }
+    });
+  });
+  
+  // Botón Get Last Sale
+  $('#btnGetLastSale').click(function() {
+    $.ajax({
+      url: baseURL + '/api/terminal/last-transaction',
+      type: 'GET',
+      success: function(res) {
+        showResponse(res);
+        showAlert('Última venta consultada exitosamente');
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert('Error al consultar última venta');
+      }
+    });
+  });
+  
+  // Botón Desconectar
+  $('#btnDesconectar').click(function() {
+    $.ajax({
+      url: baseURL + '/api/terminal/release-port',
+      type: 'POST',
+      success: function(res) {
+        showResponse(res);
+        showAlert('POS desconectado exitosamente');
+        updateConnectionStatus(false);
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert('Error al desconectar POS');
+      }
+    });
+  });
+
+  // Botón Conectar - versión compatible con Debian 8
+  $('#btnConnect').click(function() {
+    var MAX_RETRIES = 3;
+    var RETRY_DELAY = 2000;
+    var PREFERRED_PORTS = ["/dev/ttyACM0", "/dev/ttyACM1"];
+    var RESET_DELAY = 5000;
+    var $btn = $(this);
+    
+    // UI Feedback inicial
+    $btn.prop('disabled', true).html('<span class="glyphicon glyphicon-refresh spinning"></span> Verificando...');
+    
+    // 1. Verificar estado actual
+    $.ajax({
+      url: baseURL + '/api/terminal/status',
+      type: 'GET',
+      success: function(statusResponse) {
+        if (statusResponse.data && statusResponse.data.connected) {
+          showResponse(statusResponse);
+          showAlert('El POS ya está conectado en ' + statusResponse.data.port);
+          updateConnectionStatus(true);
+          $btn.prop('disabled', false).text('Conectar POS');
+          return;
+        }
+        
+        // 2. Liberar puerto y esperar un reset completo
+        $btn.html('<span class="glyphicon glyphicon-refresh spinning"></span> Liberando puerto...');
+        
+        $.ajax({
+          url: baseURL + '/api/terminal/release-port',
+          type: 'POST',
+          success: function() {
+            console.log('Puerto liberado, esperando reset...');
+            setTimeout(function() {
+              tryConnectPorts(0, 0);
+            }, RESET_DELAY);
+          },
+          error: function(disconnectError) {
+            console.warn('No se pudo cerrar conexión previa:', disconnectError.message);
+            setTimeout(function() {
+              tryConnectPorts(0, 0);
+            }, RESET_DELAY);
+          }
+        });
+      },
+      error: function(err) {
+        showResponse(err.responseJSON || err);
+        showAlert('Error al verificar estado');
+        $btn.prop('disabled', false).text('Conectar POS');
+      }
+    });
+    
+    // Función recursiva para intentar conexión en puertos
+    function tryConnectPorts(portIndex, attempt) {
+      if (portIndex >= PREFERRED_PORTS.length) {
+        // Todos los puertos fallaron
+        showAlert(' Error al conectar POS:\nDesconectar y volver a conectar el cable USB\n');
+        updateConnectionStatus(false);
+        $btn.prop('disabled', false).text('Conectar POS');
+        return;
+      }
+      
+      var port = PREFERRED_PORTS[portIndex];
+      $btn.html('<span class="glyphicon glyphicon-refresh spinning"></span> Conectando a ' + port + ' (' + (attempt+1) + '/' + MAX_RETRIES + ')...');
+      
+      $.ajax({
+        url: baseURL + '/api/terminal/connect',
+        type: 'POST',
+        data: JSON.stringify({ 
+          portPath: port,
+          retryCount: 0,
+          timeout: 1500
+        }),
+        contentType: 'application/json',
+        success: function(response) {
+          // Verificar conexión
+          $.ajax({
+            url: baseURL + '/api/terminal/status',
+            type: 'GET',
+            success: function(verifyResponse) {
+              if (verifyResponse.data && verifyResponse.data.connected) {
+                connectedSuccess(verifyResponse, port);
+              } else {
+                connectFailed(portIndex, attempt, "No se pudo verificar conexión");
+              }
+            },
+            error: function() {
+              connectFailed(portIndex, attempt, "Error al verificar conexión");
+            }
+          });
+        },
+        error: function(error) {
+          connectFailed(portIndex, attempt, error.message);
+        }
+      });
+    }
+    
+    function connectedSuccess(response, port) {
+      showResponse(response);
+      showAlert('POS conectado en ' + port);
+      updateConnectionStatus(true);
+      $btn.prop('disabled', false).text('Conectar POS');
+    }
+    
+    function connectFailed(portIndex, attempt, errorMsg) {
+      console.error('Intento ' + (attempt+1) + ' en ' + PREFERRED_PORTS[portIndex] + ' falló:', errorMsg);
+      
+      if (attempt < MAX_RETRIES - 1) {
+        // Reset adicional después de cierto número de intentos
+        if (attempt % 2 === 0) {
+          $.post(baseURL + '/api/terminal/release-port').always(function() {
+            setTimeout(function() {
+              tryConnectPorts(portIndex, attempt + 1);
+            }, RETRY_DELAY);
+          });
+        } else {
+          setTimeout(function() {
+            tryConnectPorts(portIndex, attempt + 1);
+          }, RETRY_DELAY);
+        }
+      } else {
+        // Siguiente puerto
+        setTimeout(function() {
+          tryConnectPorts(portIndex + 1, 0);
+        }, RETRY_DELAY);
+      }
+    }
+  });
+
+  function buildDetailedError(error) {
+    var errorMsg = ' Error al conectar POS:\n';  
+    errorMsg += 'Desconectar y volver a conectar el cable USB\n';  
+    return errorMsg;
+  }
+
+  // Función auxiliar para actualizar el estado de conexión en la UI
+  function updateConnectionStatus(isConnected) {
+    // Habilitar/deshabilitar otros controles según el estado
+    $('.pos-control').prop('disabled', !isConnected);
+    
+    if (isConnected) {
+      $('#btnConnect').removeClass('btn-secondary').addClass('btn-success');
+      $('#btnDesconectar').removeClass('btn-danger').addClass('btn-secondary');
+    } else {
+      $('#btnConnect').removeClass('btn-success').addClass('btn-secondary');
+      $('#btnDesconectar').removeClass('btn-secondary').addClass('btn-danger');
+    }
+  }
+</script>
+
+<style>
+  .spinning {
+    animation: spin 1s infinite linear;
+    display: inline-block;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+</style>
+
+</body>
+</html>
